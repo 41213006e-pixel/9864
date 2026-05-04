@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PICO Health: 物理強化版</title>
+    <style>
+        :root { --pico-sky: #a2d2ff; --pico-grass: #70e000; --pico-dark: #2d3436; }
+        body { font-family: '微軟正黑體', sans-serif; background-color: #f0f2f5; margin: 0; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        #bg-deco { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(180deg, var(--pico-sky) 0%, #ffffff 100%); z-index: -1; }
+        #start-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(45, 52, 54, 0.9); color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        .start-btn { background: #ff7675; color: white; border: none; padding: 15px 50px; font-size: 24px; font-weight: bold; border-radius: 50px; cursor: pointer; box-shadow: 0 6px 0 #d63031; }
+        #ui-top { display: flex; justify-content: space-between; width: 100%; max-width: 800px; padding: 15px 25px; font-weight: bold; box-sizing: border-box; font-size: 20px; color: #2d3436; }
+        #question-box { background: white; padding: 20px; border-radius: 20px; font-size: 20px; width: 90%; max-width: 760px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-bottom: 15px; border: 3px solid #ff7675; min-height: 80px; }
+        canvas { background-color: transparent; border-radius: 15px; width: 100%; max-width: 800px; height: auto; display: block; }
+    </style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="start-screen"><h1>🏥 PICO 健康探險</h1><button class="start-btn" onclick="startGame()">開始挑戰</button></div>
+<div id="ui-top"><div id="status-hp">HP: ❤️❤️❤️</div><div id="status-score">SCORE: 0</div></div>
+<div id="question-box"><div id="q-level" style="font-size: 14px; color: #b2bec3; margin-bottom: 5px;"></div><div id="q-text"></div></div>
+<canvas id="game-canvas" width="800" height="520"></canvas>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    let quizBank = [
+        { q: "成人每日建議飲水量是體重(kg)乘以多少？", options: ["10ml", "20ml", "30-35ml", "100ml"], correct: 2 },
+        { q: "預防腸病毒最有效的方法？", options: ["不睡覺", "勤洗手", "多看書", "穿厚衣服"], correct: 1 },
+        { q: "哪種飲料最健康？", options: ["珍珠奶茶", "純水", "能量飲", "碳酸飲料"], correct: 1 },
+        { q: "洗手「內外夾弓大立腕」，最後動作是？", options: ["指尖", "手背", "手心", "手腕"], correct: 3 }
+    ];
+
+    let currentLevel = 0, score = 0, hp = 3, doorOpen = false, gameStarted = false, isWaiting = false;
+    let platforms = [], coins = [], bridgeDir = 1;
+    const player = { x: 50, y: 50, vx: 0, vy: 0, size: 32, onGround: false, speed: 5, jumpPower: -12, gravity: 0.6 };
+    const keys = {};
+
+    function startGame() { document.getElementById('start-screen').style.display = 'none'; gameStarted = true; initLevel(); gameLoop(); }
+    function initLevel() { doorOpen = false; isWaiting = true; generateMap(); updateUI(); }
+
+    function generateMap() {
+        platforms = [
+            { x: 0, y: 150, w: 500, h: 25, color: "#2ecc71" },
+            { x: 150, y: 300, w: 550, h: 25, color: "#2ecc71" },
+            { x: 0, y: 460, w: 800, h: 60, color: "#27ae60" } // 最底層加厚到 60
+        ];
+        const data = quizBank[currentLevel % quizBank.length];
+        const pos = [{p:0, x:100}, {p:0, x:350}, {p:1, x:100}, {p:1, x:400}].sort(()=>Math.random()-0.5);
+        coins = data.options.map((opt, i) => ({ pIdx: pos[i].p, offsetX: pos[i].x, x: platforms[pos[i].p].x + pos[i].x, y: platforms[pos[i].p].y - 50, text: opt, isCorrect: i === data.correct, collected: false }));
+        player.x = 50; player.y = 50; player.vy = 0;
+    }
+
+    function updateUI() {
+        document.getElementById('q-level').innerText = `STEP ${currentLevel + 1}`;
+        document.getElementById('q-text').innerText = quizBank[currentLevel % quizBank.length].q;
+        document.getElementById('status-hp').innerText = "HP: " + "❤️".repeat(hp);
+        document.getElementById('status-score').innerText = "SCORE: " + score;
+    }
+
+    window.addEventListener('keydown', e => { if(isWaiting) isWaiting = false; keys[e.code] = true; });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function update() {
+        if (!gameStarted || isWaiting) return;
+        if (keys['ArrowLeft']) player.vx = -player.speed;
+        else if (keys['ArrowRight']) player.vx = player.speed;
+        else player.vx *= 0.8;
+
+        if (keys['ArrowUp'] && player.onGround) { player.vy = player.jumpPower; player.onGround = false; }
+        
+        player.vy = Math.min(player.vy + player.gravity, 15); // 限制最大掉落速度，防止穿牆
+        player.x += player.vx;
+        player.y += player.vy;
+        player.onGround = false;
+
+        platforms.forEach(p => {
+            // 物理強化：更寬寬的碰撞檢查 (Collision Detection)
+            if (player.x + player.size > p.x && player.x < p.x + p.w) {
+                if (player.vy >= 0 && player.y + player.size >= p.y && player.y + player.size <= p.y + p.h + player.vy) {
+                    player.y = p.y - player.size;
+                    player.vy = 0;
+                    player.onGround = true;
+                }
+            }
+        });
+
+        // 穿牆保護：如果真的掉出底部，強制彈回最底層平台上
+        if (player.y > 460 && player.y < 520) {
+            player.y = 460 - player.size;
+            player.vy = 0;
+            player.onGround = true;
+        } else if (player.y > 550) {
+            hp--;
+            if (hp <= 0) location.reload();
+            else initLevel();
+        }
+
+        coins.forEach(c => {
+            if (!c.collected && Math.abs(player.x - c.x) < 40 && Math.abs(player.y - c.y) < 60) {
+                c.collected = true;
+                if (c.isCorrect) { doorOpen = true; score += 100; coins = coins.filter(coin => coin.isCorrect); }
+                else { hp--; if (hp <= 0) location.reload(); else initLevel(); }
+            }
+        });
+
+        if (doorOpen && player.x > 720 && player.y > 400) { currentLevel++; initLevel(); }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        platforms.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.w, p.h); });
+        coins.forEach(c => {
+            if (!c.collected) {
+                ctx.fillStyle = "#f1c40f"; ctx.beginPath(); ctx.arc(c.x + 20, c.y + 20, 15, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#2d3436"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center"; ctx.fillText(c.text, c.x + 20, c.y - 10);
+            }
+        });
+        ctx.fillStyle = doorOpen ? "#55efc4" : "#dfe6e9"; ctx.fillRect(730, 400, 40, 60);
+        
+        // 畫可愛主角
+        ctx.fillStyle = "#ffafbd"; ctx.beginPath(); ctx.arc(player.x + 16, player.y + 16, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "white"; ctx.fillRect(player.x + 6, player.y - 4, 20, 8); // 醫護帽
+        
+        if (isWaiting) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)"; ctx.fillRect(0, 0, 800, 520);
+            ctx.fillStyle = "#2d3436"; ctx.font = "bold 30px '微軟正黑體'"; ctx.textAlign = "center"; ctx.fillText("按任意鍵開始", 400, 260);
+        }
+    }
+
+    function gameLoop() { if (gameStarted) { update(); draw(); requestAnimationFrame(gameLoop); } }
+</script>
+</body>
+</html>
